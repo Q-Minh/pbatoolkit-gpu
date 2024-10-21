@@ -1,0 +1,87 @@
+name: wheels
+
+on:
+  workflow_dispatch:
+  release:
+    types:
+      - published
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: true
+
+jobs:
+  build_wheels:
+    name: Wheels on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            build_tool_args: -j4
+            cibw_image: quay.io/pypa/manylinux_2_28_x86_64
+            cibw_archs: x86_64
+            cibw_build: cp310-manylinux_x86_64 cp311-manylinux_x86_64 cp312-manylinux_x86_64
+            sub_packages: '["nvcc", "cudart"]'
+          - os: windows-2022
+            build_tool_args: /p:CL_MPCount=4
+            cibw_archs: AMD64
+            cibw_build: cp310-win_amd64 cp311-win_amd64 cp312-win_amd64
+            sub_packages: '["nvcc", "cudart", "visual_studio_integration"]'
+      max-parallel: 4
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: Jimver/cuda-toolkit@v0.2.18
+        with:
+          cuda: '12.5.1'
+          method: 'network'
+          sub-packages: ${{ matrix.sub_packages }}
+          non-cuda-sub-packages: '[]'
+
+      - name: Setup vcpkg
+        uses: lukka/run-vcpkg@v11
+        with:
+          vcpkgDirectory: ${{ github.workspace }}/vcpkg
+          vcpkgGitCommitId: 055721089e8037d4d617250814d11f881e557549
+
+      - uses: pypa/cibuildwheel@v2.19.0
+        env:
+          CIBW_ENVIRONMENT_LINUX: VCPKG_ROOT=/host${{ github.workspace }}/vcpkg CUDA_PATH=/host${{ env.CUDA_PATH }}
+          CIBW_MANYLINUX_X86_64_IMAGE: ${{ matrix.cibw_image }}
+          # There should only be 1 CUDA driver API implementation on a given platform. https://forums.developer.nvidia.com/t/multiple-nvidia-drivers/34946
+          # I assume it will be named libcuda.so.1 on linux
+          # The version suffix for the CUDA runtime, i.e. libcudart.so.<version> should match the CUDA Toolkit major version and has ABI compatibility across major versions.
+          # In our case, we compile using CUDA Toolkit version 12.5.1, i.e. major version 12.
+          # We thus require our linux users to have libcuda.so.1 and libcudart.so.12 be dynamically discoverable via search paths described in https://man7.org/linux/man-pages/man8/ld.so.8.html
+          CIBW_REPAIR_WHEEL_COMMAND_LINUX: auditwheel show {wheel} && auditwheel repair -w {dest_dir} --exclude=libcuda.so.1 --exclude=libcudart.so.12 {wheel}
+          CIBW_ARCHS: ${{ matrix.cibw_archs }}
+          CIBW_BUILD: ${{ matrix.cibw_build }}
+          CIBW_BUILD_VERBOSITY: 1
+          CIBW_CONFIG_SETTINGS: cmake.args="--preset=ci" build.tool-args=${{ matrix.build_tool_args }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cibw-wheels-${{ matrix.os }}
+          path: wheelhouse/*.whl
+
+  upload_all:
+    name: Upload release
+    needs: [build_wheels]
+    runs-on: ubuntu-latest
+    if: (github.event_name == 'release' && github.event.action == 'published' && startsWith(github.ref, 'refs/tags/v')) #|| (github.event_name == 'workflow_dispatch')
+    # or, alternatively, upload to PyPI on every tag starting with 'v' (remove on: release above to use this)
+    # if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: cibw-*
+          path: dist
+          merge-multiple: true
+
+      - uses: pypa/gh-action-pypi-publish@release/v1

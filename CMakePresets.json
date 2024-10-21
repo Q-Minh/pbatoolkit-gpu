@@ -1,0 +1,29 @@
+{
+    "version": 6,
+    "configurePresets": [
+        {
+            "name": "default",
+            "binaryDir": "${sourceDir}/build",
+            "cacheVariables": {
+                "CMAKE_TOOLCHAIN_FILE": {
+                    "type": "FILEPATH",
+                    "value": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake"
+                }
+            }
+        },
+        {
+            "name": "ci",
+            "inherits": [
+                "default"
+            ],
+            "cacheVariables": {
+                "VCPKG_MANIFEST_FEATURES": "cuda;python",
+                "CMAKE_POSITION_INDEPENDENT_CODE": {
+                    "type": "BOOL",
+                    "value": "ON"
+                },
+                "CMAKE_CUDA_ARCHITECTURES": "70-virtual"
+            }
+        }
+    ]
+}
