@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.26)
-project(PhysicsBasedAnimationToolkitGpu VERSION 0.0.1 LANGUAGES CXX)
+project(PhysicsBasedAnimationToolkitGpu VERSION 0.0.2 LANGUAGES CXX)
 
 # Inherit dependencies from PhysicsBasedAnimationToolkit
 file(COPY "PhysicsBasedAnimationToolkit/vcpkg.json" DESTINATION ${CMAKE_CURRENT_LIST_DIR})
